@@ -9,6 +9,11 @@ Optionally merges meshes into a single one with texture atlasing.
 In the result, we get a small GLB (99%+ size reduction), with one mesh and two textures (albedo, emissive), and simplified MSquared skin, so UE5 animations can be applied on it.
 
 
+# Example:
+
+WebGL demo: https://playcanv.as/e/b/bb92b862
+
+
 # Usage
 
 ```posh
