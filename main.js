@@ -181,7 +181,9 @@ while(i--) {
 
 
 // transform world node
-const worldNode = nodes.filter((node) => { return node.getName() === 'World-Global' })?.[0];
+const worldNode = nodes.filter((node) => {
+    return node.getName() === 'World-Global' || node.getName() === 'Root-Global'
+})?.[0];
 worldNode.setScale([ 1, 1, 1 ]);
 worldNode.setRotation([ 0, 0, 0, 1 ]);
 
@@ -191,7 +193,7 @@ for(let i = 0; i < nodes.length; i++) {
     const node = nodes[i];
     const name = node.getName();
 
-    if (name === 'World-Global')
+    if (name === worldNode.getName())
         continue;
 
     const raw = tPose[name];
