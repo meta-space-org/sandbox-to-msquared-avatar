@@ -290,13 +290,6 @@ worldNode.detach();
 worldNode.dispose();
 
 
-
-
-
-// let atlasWidth;
-// let targetAtlasSize;
-
-
 // merge meshes
 if (options.merge) {
     // create new node
