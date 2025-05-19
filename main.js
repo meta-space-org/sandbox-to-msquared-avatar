@@ -1,10 +1,11 @@
 import { promises as fs } from 'fs';
 import { vec3, mat4 } from 'gl-matrix';
 import { NodeIO, Logger } from '@gltf-transform/core';
-import { KHRONOS_EXTENSIONS, KHRMaterialsEmissiveStrength, EmissiveStrength } from '@gltf-transform/extensions';
+import { KHRONOS_EXTENSIONS, KHRMaterialsEmissiveStrength } from '@gltf-transform/extensions';
 import { prune, unpartition, transformMesh, mergeDocuments, joinPrimitives } from '@gltf-transform/functions';
 
-import { copyTexturesToAtlases, createAtlases, remapUvsToAtlas } from './includes/atlas.js';
+import { Packer, iterateTextures } from './includes/packer.js';
+import { Atlas, remapUvsToAtlas } from './includes/atlas.js';
 import { inspect, humanFileSize, parseArgs } from './includes/utils.js';
 
 import tPose from './data/t-pose.json' with { type: 'json' };
@@ -16,7 +17,7 @@ const start = performance.now();
 
 const options = await parseArgs();
 const numberFormatter = new Intl.NumberFormat();
-const scale = 0.032 * 1.1;
+const scale = 0.0352;
 
 
 const io = new NodeIO().registerExtensions(KHRONOS_EXTENSIONS);
@@ -290,8 +291,10 @@ worldNode.dispose();
 
 
 
-let atlasWidth;
-let targetAtlasSize;
+
+
+// let atlasWidth;
+// let targetAtlasSize;
 
 
 // merge meshes
@@ -328,28 +331,100 @@ if (options.merge) {
         }
     }
 
-    // calculate atlas params
-    atlasWidth = Math.ceil(Math.sqrt(allPrimitives.length));
-    targetAtlasSize = atlasWidth * 64;
+    
+    // create packers
+    const packerAlbedo = new Packer();
+    const packerEmissive = new Packer();
 
-    // update UVs
-    for(let i = 0; i < allPrimitives.length; i++) {
-        const uv0 = allPrimitives[i].getAttribute('TEXCOORD_0');
-        const uv1 = allPrimitives[i].getAttribute('TEXCOORD_1');
-        if (uv0) remapUvsToAtlas(uv0, i, atlasWidth);
-        if (uv1) remapUvsToAtlas(uv1, i, atlasWidth);
-    }
+
+    // texture indices
+    const textureToRectAlbedo = new Map();
+    const textureToRectEmissive = new Map();
+
+
+    // collect textures data
+    const primitiveToTextureAlbedo = await iterateTextures(allPrimitives, 'getBaseColorTexture', (texture, width, height) => {
+        packerAlbedo.add(width, height, texture);
+    });
+    const primitiveToTextureEmissive = await iterateTextures(allPrimitives, 'getEmissiveTexture', (texture, width, height) => {
+        packerEmissive.add(width, height, texture);
+    });
+
+
+    // calculate packing
+    packerAlbedo.calculate();
+    packerEmissive.calculate();
+
 
     // create atlases
-    const atlases = createAtlases(main, targetAtlasSize, material, [ 'base', 'emissive' ]);
+    const atlasAlbedo = new Atlas(main, 'albedo', packerAlbedo.width, packerAlbedo.height);
+    const atlasEmissive = new Atlas(main, 'emissive', packerEmissive.width, packerEmissive.height, 1);
+
+
+    // fill atlases
+    atlasAlbedo.fill();
+    atlasEmissive.fill();
+
 
     // copy textures into atlases
-    await copyTexturesToAtlases(main, allPrimitives, atlases, atlasWidth, targetAtlasSize);
-
-    // convert atlases into texture files
-    for(let key in atlases) {
-        await atlases[key].upload();
+    for(let i = 0; i < packerAlbedo.rects.length; i++) {
+        const rect = packerAlbedo.rects[i];
+        textureToRectAlbedo.set(rect.texture, rect);
+        await atlasAlbedo.copy(rect.texture, rect.x, rect.y);
     }
+    for(let i = 0; i < packerEmissive.rects.length; i++) {
+        const rect = packerEmissive.rects[i];
+        textureToRectEmissive.set(rect.texture, rect);
+        await atlasEmissive.copy(rect.texture, rect.x, rect.y);
+    }
+
+
+    // convert atlases to files
+    await atlasAlbedo.upload();
+    await atlasEmissive.upload();
+
+
+    // set material textures
+    material.setBaseColorTexture(atlasAlbedo.texture);
+    material.setEmissiveTexture(atlasEmissive.texture);
+
+
+    // get texture infos
+    const infoAlbedo = material.getBaseColorTextureInfo();
+    const infoEmissive = material.getEmissiveTextureInfo();
+
+
+    // set texture filtering
+    infoAlbedo.setMinFilter(9984);
+    infoAlbedo.setMagFilter(9728);
+    infoEmissive.setMinFilter(9984);
+    infoEmissive.setMagFilter(9728);
+    infoEmissive.setTexCoord(1);
+
+
+    // remap UVs to atlas
+    for(let p = 0; p < allPrimitives.length; p++) {
+        const primitive = allPrimitives[p];
+
+        const textureAlbedo = primitiveToTextureAlbedo.get(primitive);
+        if (textureAlbedo) {
+            const rect = textureToRectAlbedo.get(textureAlbedo);
+            if (rect) {
+                const uv = primitive.getAttribute('TEXCOORD_0');
+                if (uv) remapUvsToAtlas(uv, packerAlbedo, rect);
+            }
+        }
+
+        const textureEmissive = primitiveToTextureEmissive.get(primitive);
+        if (textureEmissive) {
+            const rect = textureToRectEmissive.get(textureEmissive);
+            if (rect) {
+                const uv = primitive.getAttribute('TEXCOORD_1');
+                if (uv) remapUvsToAtlas(uv, packerEmissive, rect);
+            }
+        }
+    }
+
 
     // joint primitives together
     const primitive = joinPrimitives(allPrimitives);
