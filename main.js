@@ -17,7 +17,7 @@ const start = performance.now();
 
 const options = await parseArgs();
 const numberFormatter = new Intl.NumberFormat();
-const scale = 0.0352;
+let scale = 0.0352;
 
 
 const io = new NodeIO().registerExtensions(KHRONOS_EXTENSIONS);
@@ -74,6 +74,15 @@ const collectNodes = (node, list) => {
     for(let i = 0; i < children.length; i++)
         collectNodes(children[i], nodesDonor);
 }
+
+
+// calculate scale based on head position
+const nodeHead = nodes.filter((node) => { return node.getName() === 'Head-Global' })[0];
+const nodeHeadDonor = nodesDonor.filter((node) => { return node.getName() === 'neck_01' })[0];
+
+const headPos = mat4.getTranslation([], nodeHead.getWorldMatrix());
+const headDonorPos = mat4.getTranslation([], nodeHeadDonor.getWorldMatrix());
+scale = (headDonorPos[1] / headPos[1]) * 0.9;
 
 
 // reparent donor skeleton
@@ -199,12 +208,21 @@ for(let i = 0; i < nodes.length; i++) {
 
     const raw = tPose[name];
 
-    if (raw) {
-        node.setTranslation(raw.position);
-        node.setRotation(raw.rotation);
+    const pos = node.getTranslation();
+
+    if (name === 'Controller-Global') {
+        // make sure hips are in right place
+        node.setTranslation([ 0, 1.0194666385650635, 0.011857056058943272]);
     } else {
-        const pos = node.getTranslation();
         node.setTranslation(vec3.scale([], pos, scale));
+    }
+
+    if (raw) {
+        // only translate if position is provided
+        if (raw.position)
+            node.setTranslation(raw.position);
+
+        node.setRotation(raw.rotation);
     }
 }
 
