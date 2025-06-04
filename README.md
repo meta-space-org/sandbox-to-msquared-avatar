@@ -18,7 +18,7 @@ WebGL demo: https://playcanv.as/e/b/bb92b862
 
 ```posh
 npm install
-node main.js --file ./path/to/file.gltf --output ./path/to/output.glb --merge
+node tool.js --file ./path/to/file.gltf --output ./path/to/output.glb --merge
 ```
 
 
